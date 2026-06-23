@@ -8,8 +8,25 @@
       content="Codex Desktop-inspired local engineering copilot powered by Ollama."
     />
     <title>ChatQTRM</title>
+    <script>
+      // Apply the persisted/preferred theme before paint to avoid a flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("chatqtrm-theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-ink">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

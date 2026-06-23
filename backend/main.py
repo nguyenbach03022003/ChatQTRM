@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -173,6 +173,10 @@ class CreateChatRequest(BaseModel):
     title: str | None = None
 
 
+class UpdateChatRequest(BaseModel):
+    title: str
+
+
 class ChatSummary(BaseModel):
     id: str
     title: str
@@ -256,6 +260,32 @@ async def create_chat(payload: CreateChatRequest) -> ChatSession:
 @app.get("/api/chats/{chat_id}", response_model=ChatSession)
 async def get_chat(chat_id: str) -> ChatSession:
     return ChatSession.model_validate(get_chat_or_404(chat_id))
+
+
+@app.patch("/api/chats/{chat_id}", response_model=ChatSummary)
+async def rename_chat(chat_id: str, payload: UpdateChatRequest) -> ChatSummary:
+    chat = get_chat_or_404(chat_id)
+    title = payload.title.strip() or "New Chat"
+    chat["title"] = title
+    chat["updated_at"] = utc_now()
+    update_chat(chat)
+    return ChatSummary(
+        id=chat["id"],
+        title=chat["title"],
+        created_at=chat["created_at"],
+        updated_at=chat["updated_at"],
+        message_count=len(chat["messages"]),
+    )
+
+
+@app.delete("/api/chats/{chat_id}", status_code=204)
+async def delete_chat(chat_id: str) -> Response:
+    chats = load_chats()
+    remaining = [chat for chat in chats if chat["id"] != chat_id]
+    if len(remaining) == len(chats):
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    save_chats(remaining)
+    return Response(status_code=204)
 
 
 @app.get("/api/workspace/tree")

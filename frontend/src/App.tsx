@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./lib/api";
 import { streamChat } from "./lib/sse";
+import { useTheme } from "./lib/theme";
 import type { AgentStats, ChatSummary, Message } from "./types";
 import { ChatWindow } from "./components/ChatWindow";
 import { ContextPanel } from "./components/ContextPanel";
@@ -31,6 +32,9 @@ export default function App() {
   const [activeFiles, setActiveFiles] = useState<string[]>([]);
   const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [contextOpen, setContextOpen] = useState(true);
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     void bootstrap();
@@ -72,6 +76,29 @@ export default function App() {
     setActiveChatId(chat.id);
     setMessages(chat.messages);
     setAgentStats(null);
+  }
+
+  async function handleRenameChat(chatId: string, title: string) {
+    await api.renameChat(chatId, title);
+    setChats((current) =>
+      current.map((chat) => (chat.id === chatId ? { ...chat, title } : chat)),
+    );
+  }
+
+  async function handleDeleteChat(chatId: string) {
+    await api.deleteChat(chatId);
+    const refreshedChats = await api.getChats();
+    setChats(refreshedChats);
+
+    if (chatId !== activeChatId) {
+      return;
+    }
+
+    if (refreshedChats[0]) {
+      await selectChat(refreshedChats[0].id);
+    } else {
+      await handleCreateChat();
+    }
   }
 
   async function hydrateDirectory(targetPath: string) {
@@ -230,37 +257,61 @@ export default function App() {
       estimatedPromptTokens: 0,
     };
 
+  const gridTemplate = [
+    sidebarOpen ? "300px" : null,
+    "minmax(0,1fr)",
+    contextOpen ? "330px" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="h-screen overflow-hidden bg-haze">
-      <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-        <Sidebar
-          activeChatId={activeChatId}
-          chats={chats}
-          expandedPaths={expandedPaths}
-          nodes={workspaceNodes}
-          onCreateChat={handleCreateChat}
-          onSelectChat={selectChat}
-          onToggleExpand={handleToggleExpand}
-          onToggleSelect={handleToggleSelect}
-          selectedFiles={selectedFiles}
-          workspaceRoot={config?.workspaceRoot || "/workspace"}
-        />
+      <div
+        className="grid h-full min-h-0 overflow-hidden"
+        style={{ gridTemplateColumns: gridTemplate }}
+      >
+        {sidebarOpen && (
+          <Sidebar
+            activeChatId={activeChatId}
+            chats={chats}
+            expandedPaths={expandedPaths}
+            nodes={workspaceNodes}
+            onCreateChat={handleCreateChat}
+            onDeleteChat={handleDeleteChat}
+            onRenameChat={handleRenameChat}
+            onSelectChat={selectChat}
+            onToggleExpand={handleToggleExpand}
+            onToggleSelect={handleToggleSelect}
+            selectedFiles={selectedFiles}
+            workspaceRoot={config?.workspaceRoot || "/workspace"}
+          />
+        )}
         <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
           <ChatWindow
             attachmentCount={selectedFileCount}
+            contextOpen={contextOpen}
             input={input}
             isStreaming={isStreaming}
             messages={messages}
+            modelName={config?.model || "local-model"}
             onInputChange={setInput}
             onSubmit={handleSubmit}
+            onToggleContext={() => setContextOpen((open) => !open)}
+            onToggleSidebar={() => setSidebarOpen((open) => !open)}
+            onToggleTheme={toggleTheme}
+            sidebarOpen={sidebarOpen}
+            theme={theme}
           />
         </div>
-        <ContextPanel
-          activeFiles={activeFiles}
-          modelName={config?.model || "local-model"}
-          onQuickAction={setInput}
-          stats={stableStats}
-        />
+        {contextOpen && (
+          <ContextPanel
+            activeFiles={activeFiles}
+            modelName={config?.model || "local-model"}
+            onQuickAction={setInput}
+            stats={stableStats}
+          />
+        )}
       </div>
     </div>
   );

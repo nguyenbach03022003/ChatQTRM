@@ -21,6 +21,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(error.detail || "Request failed.");
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
@@ -33,6 +37,13 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
   getChat: (chatId: string) => request<ChatSession>(`/api/chats/${chatId}`),
+  renameChat: (chatId: string, title: string) =>
+    request<ChatSummary>(`/api/chats/${chatId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteChat: (chatId: string) =>
+    request<void>(`/api/chats/${chatId}`, { method: "DELETE" }),
   getWorkspaceTree: (path = "") =>
     request<WorkspaceTreeResponse>(
       `/api/workspace/tree?path=${encodeURIComponent(path)}`,

@@ -35,10 +35,10 @@ export function WorkspaceExplorer({
           <div key={node.path || node.name}>
             <button
               className={clsx(
-                "flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm transition",
+                "flex w-full items-center gap-2 rounded-xl px-3 py-1.5 text-left text-sm transition",
                 selected
-                  ? "bg-emerald-400/12 text-emerald-200"
-                  : "text-slate-300 hover:bg-slate-800/70 hover:text-slate-100",
+                  ? "bg-accent/12 text-accent"
+                  : "text-muted hover:bg-surface-3 hover:text-content",
               )}
               onClick={() =>
                 isDirectory ? onToggleExpand(node) : onToggleSelect(node)
@@ -48,17 +48,23 @@ export function WorkspaceExplorer({
             >
               {isDirectory ? (
                 expanded ? (
-                  <ChevronDown size={14} className="shrink-0 text-slate-500" />
+                  <ChevronDown size={14} className="shrink-0 text-subtle" />
                 ) : (
-                  <ChevronRight size={14} className="shrink-0 text-slate-500" />
+                  <ChevronRight size={14} className="shrink-0 text-subtle" />
                 )
               ) : (
                 <span className="w-[14px]" />
               )}
               {isDirectory ? (
-                <Folder size={15} className="shrink-0 text-amber-300" />
+                <Folder size={15} className="shrink-0 text-ember" />
               ) : (
-                <FileCode2 size={15} className="shrink-0 text-emerald-300" />
+                <FileCode2
+                  size={15}
+                  className={clsx(
+                    "shrink-0",
+                    selected ? "text-accent" : "text-muted",
+                  )}
+                />
               )}
               <span className="truncate">{node.name}</span>
             </button>
