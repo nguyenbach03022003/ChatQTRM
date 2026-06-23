@@ -1,0 +1,57 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: chatqtrm-ollama
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_MAX_TRANSFER_STREAMS: 1
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    entrypoint: >
+      /bin/sh -c "
+      sleep 8 &&
+      ollama pull ${OLLAMA_MODEL:-qwen3:32b}
+      "
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+    container_name: chatqtrm-backend
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:32b}
+      WORKSPACE_ROOT: /workspace
+      DATA_DIR: /app/data
+    volumes:
+      - ./backend/data:/app/data
+      - ./:/workspace:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    container_name: chatqtrm-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
