@@ -18,6 +18,7 @@ CHATS_FILE = DATA_DIR / "chats.json"
 WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT", "/workspace")).resolve()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:32b")
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 MAX_CONTEXT_FILES = int(os.getenv("MAX_CONTEXT_FILES", "8"))
 MAX_CONTEXT_CHARS_PER_FILE = int(os.getenv("MAX_CONTEXT_CHARS_PER_FILE", "18000"))
 MAX_CONTEXT_TOTAL_CHARS = int(os.getenv("MAX_CONTEXT_TOTAL_CHARS", "90000"))
@@ -229,6 +230,7 @@ async def get_config() -> dict[str, str]:
         "workspaceRoot": str(WORKSPACE_ROOT),
         "model": OLLAMA_MODEL,
         "ollamaBaseUrl": OLLAMA_BASE_URL,
+        "ollamaNumCtx": str(OLLAMA_NUM_CTX),
     }
 
 
@@ -389,6 +391,7 @@ async def stream_chat(payload: ChatRequest) -> StreamingResponse:
                         "messages": model_messages,
                         "stream": True,
                         "options": {
+                            "num_ctx": OLLAMA_NUM_CTX,
                             "temperature": 0.2,
                         },
                     },

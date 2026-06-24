@@ -1,4 +1,5 @@
 import type {
+  AppConfig,
   ChatSession,
   ChatSummary,
   WorkspaceTreeResponse,
@@ -49,7 +50,5 @@ export const api = {
       `/api/workspace/tree?path=${encodeURIComponent(path)}`,
     ),
   getConfig: () =>
-    request<{ workspaceRoot: string; model: string; ollamaBaseUrl: string }>(
-      "/api/config",
-    ),
+    request<AppConfig>("/api/config"),
 };

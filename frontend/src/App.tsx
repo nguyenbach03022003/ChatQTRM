@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./lib/api";
 import { streamChat } from "./lib/sse";
 import { useTheme } from "./lib/theme";
-import type { AgentStats, ChatSummary, Message } from "./types";
+import type { AgentStats, AppConfig, ChatSummary, Message } from "./types";
 import { ChatWindow } from "./components/ChatWindow";
 import { ContextPanel } from "./components/ContextPanel";
 import { Sidebar } from "./components/Sidebar";
@@ -18,10 +18,7 @@ function createPendingAssistant(): Message {
 }
 
 export default function App() {
-  const [config, setConfig] = useState<{
-    workspaceRoot: string;
-    model: string;
-  } | null>(null);
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -47,10 +44,7 @@ export default function App() {
       api.getWorkspaceTree(),
     ]);
 
-    setConfig({
-      workspaceRoot: appConfig.workspaceRoot,
-      model: appConfig.model,
-    });
+    setConfig(appConfig);
     setChats(chatList);
     setWorkspaceNodes(rootTree.children as ExplorerNode[]);
 
@@ -307,6 +301,7 @@ export default function App() {
         {contextOpen && (
           <ContextPanel
             activeFiles={activeFiles}
+            contextWindow={Number(config?.ollamaNumCtx || 0)}
             modelName={config?.model || "local-model"}
             onQuickAction={setInput}
             stats={stableStats}

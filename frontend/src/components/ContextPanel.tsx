@@ -3,6 +3,7 @@ import {
   Bot,
   BrainCircuit,
   FileText,
+  Gauge,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -10,6 +11,7 @@ import type { AgentStats } from "../types";
 
 interface ContextPanelProps {
   activeFiles: string[];
+  contextWindow: number;
   modelName: string;
   stats: AgentStats | null;
   onQuickAction: (prompt: string) => void;
@@ -24,10 +26,17 @@ const QUICK_ACTIONS = [
 
 export function ContextPanel({
   activeFiles,
+  contextWindow,
   modelName,
   stats,
   onQuickAction,
 }: ContextPanelProps) {
+  const estimatedPromptTokens = stats?.estimatedPromptTokens ?? 0;
+  const contextUsage =
+    contextWindow > 0
+      ? Math.min(100, (estimatedPromptTokens / contextWindow) * 100)
+      : 0;
+
   return (
     <aside className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface/60 p-4 backdrop-blur">
       <section className="rounded-2xl border border-border bg-surface-2/80 p-3">
@@ -44,8 +53,18 @@ export function ContextPanel({
           <StatTile
             icon={<Activity size={15} />}
             label="Prompt Context"
-            value={`${stats?.estimatedPromptTokens ?? 0} est. tokens`}
+            value={`${estimatedPromptTokens.toLocaleString()} est. tokens`}
             hint={`${stats?.promptEvalCount ?? 0} evaluated prompt tokens`}
+          />
+          <StatTile
+            icon={<Gauge size={15} />}
+            label="Context Window"
+            value={
+              contextWindow > 0
+                ? `${contextWindow.toLocaleString()} tokens`
+                : "Unknown"
+            }
+            hint={`${contextUsage.toFixed(1)}% of configured window`}
           />
           <StatTile
             icon={<Sparkles size={15} />}

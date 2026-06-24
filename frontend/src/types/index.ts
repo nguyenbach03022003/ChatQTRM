@@ -36,6 +36,13 @@ export interface WorkspaceTreeResponse {
   children: WorkspaceNode[];
 }
 
+export interface AppConfig {
+  workspaceRoot: string;
+  model: string;
+  ollamaBaseUrl: string;
+  ollamaNumCtx: string;
+}
+
 export interface AgentStats {
   model: string;
   evalCount: number;
