@@ -13,6 +13,23 @@ export interface AppSettings {
   autoSave: boolean;
   requireApproval: boolean;
   enabledTools: string[];
+  mcpServers: McpServerConfig[];
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  serverName: string | null;
+  protocolVersion: string | null;
+  message: string;
 }
 
 export interface Project {
@@ -54,6 +71,25 @@ export interface TextMatch {
   line: number;
   column: number;
   text: string;
+}
+
+export interface ProjectGraphEdge {
+  from: string;
+  to: string;
+  kind: string;
+}
+
+export interface ProjectMap {
+  root: string;
+  githubRemote: string | null;
+  stack: string[];
+  fileCount: number;
+  directoryCount: number;
+  totalBytes: number;
+  importantFiles: string[];
+  files: string[];
+  graph: ProjectGraphEdge[];
+  truncated: boolean;
 }
 
 export interface GitFile {

@@ -7,7 +7,7 @@ import type { ApprovalRequest } from "./ApprovalModal";
 
 const ALL_TOOLS = [
   "read_file", "write_file", "edit_file", "list_files", "search_files",
-  "search_text", "create_file", "create_folder", "run_command",
+  "search_text", "project_map", "mcp_list_tools", "mcp_call_tool", "create_file", "create_folder", "run_command",
   "git_status", "git_diff", "git_stage", "git_commit", "git_branch",
 ];
 

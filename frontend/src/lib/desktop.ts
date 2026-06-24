@@ -15,6 +15,9 @@ import type {
   FileContent,
   GitStatus,
   Project,
+  ProjectMap,
+  McpServerConfig,
+  McpTestResult,
   Skill,
   SkillInput,
   TextMatch,
@@ -36,6 +39,8 @@ export const desktop = {
   setSecret: (key: string, value: string) => call<void>("set_secret", { key, value }),
   hasSecret: (key: string) => call<boolean>("has_secret", { key }),
   deleteSecret: (key: string) => call<void>("delete_secret", { key }),
+  testMcpServer: (server: McpServerConfig) =>
+    call<McpTestResult>("test_mcp_server", { server }),
 
   // ----- Projects -----
   pickFolder: () => openDialog({ directory: true, multiple: false, title: "Select Project Folder" }),
@@ -54,6 +59,7 @@ export const desktop = {
   editFile: (path: string, oldString: string, newString: string, replaceAll = false) =>
     call<EditResult>("edit_file", { path, oldString, newString, replaceAll }),
   deletePath: (path: string) => call<string>("delete_path", { path }),
+  projectMap: () => call<ProjectMap>("project_map"),
 
   // ----- Search -----
   searchFiles: (query: string) => call<string[]>("search_files", { query }),

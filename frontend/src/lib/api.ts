@@ -2,6 +2,7 @@ import type {
   AppConfig,
   ChatSession,
   ChatSummary,
+  ProjectMap,
   WorkspaceTreeResponse,
 } from "../types";
 
@@ -49,6 +50,7 @@ export const api = {
     request<WorkspaceTreeResponse>(
       `/api/workspace/tree?path=${encodeURIComponent(path)}`,
     ),
+  getWorkspaceMap: () => request<ProjectMap>("/api/workspace/map"),
   getConfig: () =>
     request<AppConfig>("/api/config"),
 };

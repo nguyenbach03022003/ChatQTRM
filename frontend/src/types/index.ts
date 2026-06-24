@@ -36,6 +36,25 @@ export interface WorkspaceTreeResponse {
   children: WorkspaceNode[];
 }
 
+export interface ProjectGraphEdge {
+  from: string;
+  to: string;
+  kind: string;
+}
+
+export interface ProjectMap {
+  root: string;
+  githubRemote: string | null;
+  stack: string[];
+  fileCount: number;
+  directoryCount: number;
+  totalBytes: number;
+  importantFiles: string[];
+  files: string[];
+  graph: ProjectGraphEdge[];
+  truncated: boolean;
+}
+
 export interface AppConfig {
   workspaceRoot: string;
   model: string;

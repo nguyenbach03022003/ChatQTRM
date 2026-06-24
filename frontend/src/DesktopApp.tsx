@@ -65,6 +65,10 @@ export default function DesktopApp() {
         setProjects(list);
         if (activePath) {
           setActiveProject(list.find((p) => p.root === activePath) ?? null);
+        } else if (list[0]) {
+          const project = await desktop.openProjectById(list[0].id);
+          setActiveProject(project);
+          setProjects(await desktop.listProjects());
         }
         await refreshChats(true);
       } catch (e) {

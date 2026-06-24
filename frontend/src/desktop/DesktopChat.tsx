@@ -44,6 +44,8 @@ export function DesktopChat({
   }, [messages, isStreaming]);
 
   const isEmpty = messages.length === 0;
+  const contextPercent =
+    contextWindow > 0 ? Math.min(100, (estimatedTokens / contextWindow) * 100) : 0;
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-haze">
@@ -88,6 +90,22 @@ export function DesktopChat({
 
       <div className="shrink-0 px-4 pb-5 sm:px-6">
         <div className="mx-auto max-w-3xl">
+          <div className="mb-2 rounded-xl border border-border bg-surface-2/80 px-3 py-2">
+            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-subtle">
+              <span>Context window used</span>
+              <span className="font-mono text-muted">
+                {estimatedTokens.toLocaleString()} /{" "}
+                {contextWindow > 0 ? contextWindow.toLocaleString() : "unknown"} tokens
+                {contextWindow > 0 && ` (${contextPercent.toFixed(1)}%)`}
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${contextPercent}%` }}
+              />
+            </div>
+          </div>
           {(attachments.length > 0 || activeFiles.length > 0) && (
             <div className="mb-2 flex flex-wrap items-center gap-2">
               {attachments.map((p) => (
@@ -104,7 +122,7 @@ export function DesktopChat({
               ))}
               {estimatedTokens > 0 && (
                 <span className="ml-auto text-[11px] text-subtle">
-                  ~{estimatedTokens.toLocaleString()} tok
+                  ~{estimatedTokens.toLocaleString()} used
                   {contextWindow > 0 && ` / ${contextWindow.toLocaleString()}`}
                 </span>
               )}

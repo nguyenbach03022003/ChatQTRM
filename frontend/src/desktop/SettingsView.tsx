@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Check, Eye, KeyRound, Loader, Save, Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { Check, Eye, KeyRound, Loader, Plus, Save, Server, Settings as SettingsIcon, Trash2, Wifi } from "lucide-react";
 import clsx from "clsx";
 import { desktop } from "../lib/desktop";
-import type { AppSettings } from "../types/desktop";
+import type { AppSettings, McpServerConfig, McpTestResult } from "../types/desktop";
 
 const ALL_TOOLS = [
   "read_file", "write_file", "edit_file", "list_files", "search_files",
-  "search_text", "create_file", "create_folder", "run_command",
+  "search_text", "project_map", "mcp_list_tools", "mcp_call_tool", "create_file", "create_folder", "run_command",
   "git_status", "git_diff", "git_stage", "git_commit", "git_branch",
 ];
 
@@ -19,6 +19,8 @@ export function SettingsView({ settings, onSaved }: Props) {
   const [draft, setDraft] = useState<AppSettings>(settings);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mcpTests, setMcpTests] = useState<Record<string, McpTestResult | { ok: false; message: string }>>({});
+  const [testingMcp, setTestingMcp] = useState<string | null>(null);
 
   useEffect(() => setDraft(settings), [settings]);
   const set = <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => setDraft((d) => ({ ...d, [k]: v }));
@@ -31,6 +33,45 @@ export function SettingsView({ settings, onSaved }: Props) {
       setTimeout(() => setSaved(false), 1800);
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  function updateMcp(id: string, patch: Partial<McpServerConfig>) {
+    set("mcpServers", (draft.mcpServers || []).map((server) => (server.id === id ? { ...server, ...patch } : server)));
+  }
+
+  function addMcpServer() {
+    set("mcpServers", [
+      ...(draft.mcpServers || []),
+      {
+        id: crypto.randomUUID(),
+        name: "New MCP Server",
+        command: "node",
+        args: [],
+        env: {},
+        enabled: true,
+      },
+    ]);
+  }
+
+  function removeMcpServer(id: string) {
+    set("mcpServers", (draft.mcpServers || []).filter((server) => server.id !== id));
+    setMcpTests((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  async function testMcp(server: McpServerConfig) {
+    setTestingMcp(server.id);
+    try {
+      const result = await desktop.testMcpServer(server);
+      setMcpTests((current) => ({ ...current, [server.id]: result }));
+    } catch (e) {
+      setMcpTests((current) => ({ ...current, [server.id]: { ok: false, message: String(e) } }));
+    } finally {
+      setTestingMcp(null);
     }
   }
 
@@ -64,6 +105,49 @@ export function SettingsView({ settings, onSaved }: Props) {
       <Card title="API Keys" subtitle="Stored in the Windows Credential Manager — never written to disk.">
         <SecretField label="OpenAI API key" keyName="openai_api_key" />
         <SecretField label="Anthropic API key" keyName="anthropic_api_key" />
+      </Card>
+
+      <Card title="MCP Servers" subtitle="Stdio servers are launched locally from command and arguments.">
+        <div className="space-y-3">
+          {(draft.mcpServers || []).map((server) => {
+            const test = mcpTests[server.id];
+            const isTesting = testingMcp === server.id;
+            return (
+              <div key={server.id} className="rounded-xl border border-border bg-surface-3/50 p-3">
+                <div className="mb-3 flex items-center gap-2">
+                  <Server size={15} className="text-accent" />
+                  <input value={server.name} onChange={(e) => updateMcp(server.id, { name: e.target.value })} className={clsx(inputCls, "font-medium")} />
+                  <Switch label="Enabled" checked={server.enabled} onChange={(enabled) => updateMcp(server.id, { enabled })} />
+                  <button type="button" title="Delete" onClick={() => removeMcpServer(server.id)} className="rounded-lg border border-border px-2.5 py-2 text-subtle hover:text-danger"><Trash2 size={15} /></button>
+                </div>
+                <Grid>
+                  <Field label="Command">
+                    <input value={server.command} onChange={(e) => updateMcp(server.id, { command: e.target.value })} className={inputCls} placeholder="node" />
+                  </Field>
+                  <Field label="Arguments">
+                    <input value={server.args.join(" ")} onChange={(e) => updateMcp(server.id, { args: splitArgs(e.target.value) })} className={inputCls} placeholder={"C:\\path\\server.js --stdio"} />
+                  </Field>
+                </Grid>
+                <Field label="Environment">
+                  <textarea value={envToText(server.env)} onChange={(e) => updateMcp(server.id, { env: textToEnv(e.target.value) })} className={clsx(inputCls, "mt-1 min-h-20 font-mono")} placeholder={"KEY=value\nTOKEN=..."} />
+                </Field>
+                <div className="mt-3 flex items-center gap-2">
+                  <button type="button" disabled={isTesting || !server.command.trim()} onClick={() => void testMcp(server)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-muted hover:border-accent-soft hover:text-content disabled:opacity-40">
+                    {isTesting ? <Loader size={14} className="animate-spin" /> : <Wifi size={14} />} Test
+                  </button>
+                  {test && (
+                    <span className={clsx("text-xs", test.ok ? "text-accent" : "text-danger")}>
+                      {test.ok && "serverName" in test && test.serverName ? `${test.message} (${test.serverName})` : test.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <button type="button" onClick={addMcpServer} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted hover:border-accent-soft hover:text-content">
+            <Plus size={15} /> Add MCP server
+          </button>
+        </div>
       </Card>
 
       <Card title="Workspace & Terminal">
@@ -157,4 +241,44 @@ function Switch({ label, checked, onChange }: { label: string; checked: boolean;
       </button>
     </label>
   );
+}
+
+function splitArgs(value: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  for (const char of value) {
+    if ((char === "'" || char === '"') && !quote) {
+      quote = char;
+      continue;
+    }
+    if (quote === char) {
+      quote = null;
+      continue;
+    }
+    if (/\s/.test(char) && !quote) {
+      if (current) out.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+function envToText(env: Record<string, string>): string {
+  return Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n");
+}
+
+function textToEnv(value: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of value.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx <= 0) continue;
+    env[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+  }
+  return env;
 }

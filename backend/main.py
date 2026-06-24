@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,36 @@ OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 MAX_CONTEXT_FILES = int(os.getenv("MAX_CONTEXT_FILES", "8"))
 MAX_CONTEXT_CHARS_PER_FILE = int(os.getenv("MAX_CONTEXT_CHARS_PER_FILE", "18000"))
 MAX_CONTEXT_TOTAL_CHARS = int(os.getenv("MAX_CONTEXT_TOTAL_CHARS", "90000"))
+MAX_PROJECT_MAP_FILES = int(os.getenv("MAX_PROJECT_MAP_FILES", "220"))
+MAX_PROJECT_GRAPH_EDGES = int(os.getenv("MAX_PROJECT_GRAPH_EDGES", "140"))
+
+IGNORED_PROJECT_DIRS = {
+    ".git",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".tauri",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "target",
+}
+
+IMPORTANT_PROJECT_FILES = {
+    "cargo.toml",
+    "docker-compose.yml",
+    "dockerfile",
+    "go.mod",
+    "package.json",
+    "pyproject.toml",
+    "readme.md",
+    "requirements.txt",
+    "tauri.conf.json",
+    "vite.config.ts",
+}
 
 CODE_EXTENSIONS = {
     ".c",
@@ -51,6 +83,8 @@ CODE_EXTENSIONS = {
     ".yml",
 }
 
+GRAPH_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx", ".py", ".rs"}
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -79,6 +113,165 @@ def safe_workspace_path(relative_path: str | None) -> Path:
     if WORKSPACE_ROOT not in {target, *target.parents}:
         raise HTTPException(status_code=400, detail="Path escapes the workspace root.")
     return target
+
+
+def rel_path(path: Path) -> str:
+    return str(path.relative_to(WORKSPACE_ROOT)).replace("\\", "/")
+
+
+def is_ignored_project_path(path: Path) -> bool:
+    if path == WORKSPACE_ROOT:
+        return False
+    return any(part.lower() in IGNORED_PROJECT_DIRS for part in path.relative_to(WORKSPACE_ROOT).parts)
+
+
+def detect_github_remote() -> str | None:
+    remote: str | None = None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(WORKSPACE_ROOT), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except Exception:
+        result = None
+    if result is not None:
+        remote = result.stdout.strip()
+    if not remote:
+        git_config = WORKSPACE_ROOT / ".git" / "config"
+        if git_config.exists():
+            in_origin = False
+            for line in git_config.read_text(encoding="utf-8", errors="ignore").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("[remote "):
+                    in_origin = stripped == '[remote "origin"]'
+                    continue
+                if in_origin and stripped.startswith("url"):
+                    _, value = stripped.split("=", 1)
+                    remote = value.strip()
+                    break
+    if not remote:
+        return None
+    if remote.startswith("git@github.com:"):
+        return "https://github.com/" + remote.removeprefix("git@github.com:").removesuffix(".git")
+    if remote.startswith("https://github.com/"):
+        return remote.removesuffix(".git")
+    return remote
+
+
+def detect_project_stack(files: list[Path]) -> list[str]:
+    names = {path.name.lower() for path in files}
+    suffixes = {path.suffix.lower() for path in files}
+    stack: list[str] = []
+    if "package.json" in names:
+        stack.append("Node/JavaScript")
+    if "vite.config.ts" in names or "vite.config.js" in names:
+        stack.append("Vite")
+    if "tauri.conf.json" in names or "cargo.toml" in names:
+        stack.append("Rust/Tauri")
+    if "docker-compose.yml" in names or "dockerfile" in names:
+        stack.append("Docker")
+    if "requirements.txt" in names or "pyproject.toml" in names or ".py" in suffixes:
+        stack.append("Python")
+    if ".tsx" in suffixes or ".jsx" in suffixes:
+        stack.append("React")
+    return stack
+
+
+def extract_dependency_edges(path: Path) -> list[dict[str, str]]:
+    if path.suffix.lower() not in GRAPH_EXTENSIONS:
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()[:260]
+    except OSError:
+        return []
+
+    edges: list[dict[str, str]] = []
+    source = rel_path(path)
+    patterns = [
+        re.compile(r"^\s*import\s+(?:.+?\s+from\s+)?[\"']([^\"']+)[\"']"),
+        re.compile(r"^\s*export\s+.+?\s+from\s+[\"']([^\"']+)[\"']"),
+        re.compile(r"^\s*from\s+([\w.]+)\s+import\s+"),
+        re.compile(r"^\s*use\s+([a-zA-Z0-9_:]+)"),
+        re.compile(r"^\s*mod\s+([a-zA-Z0-9_]+)\s*;"),
+    ]
+    for line in lines:
+        for pattern in patterns:
+            match = pattern.search(line)
+            if not match:
+                continue
+            target = match.group(1)
+            edges.append({"from": source, "to": target, "kind": "imports"})
+            break
+        if len(edges) >= 12:
+            break
+    return edges
+
+
+def build_project_map() -> dict[str, Any]:
+    files: list[Path] = []
+    directories: set[str] = set()
+    total_bytes = 0
+
+    for path in WORKSPACE_ROOT.rglob("*"):
+        if is_ignored_project_path(path):
+            continue
+        if path.is_dir():
+            directories.add(rel_path(path))
+            continue
+        if not path.is_file():
+            continue
+        files.append(path)
+        total_bytes += path.stat().st_size
+        if len(files) >= MAX_PROJECT_MAP_FILES:
+            break
+
+    important = [
+        rel_path(path)
+        for path in files
+        if path.name.lower() in IMPORTANT_PROJECT_FILES
+    ]
+    edges: list[dict[str, str]] = []
+    for path in files:
+        edges.extend(extract_dependency_edges(path))
+        if len(edges) >= MAX_PROJECT_GRAPH_EDGES:
+            edges = edges[:MAX_PROJECT_GRAPH_EDGES]
+            break
+
+    return {
+        "root": str(WORKSPACE_ROOT),
+        "githubRemote": detect_github_remote(),
+        "stack": detect_project_stack(files),
+        "fileCount": len(files),
+        "directoryCount": len(directories),
+        "totalBytes": total_bytes,
+        "importantFiles": important[:40],
+        "files": [rel_path(path) for path in files[:MAX_PROJECT_MAP_FILES]],
+        "graph": edges,
+        "truncated": len(files) >= MAX_PROJECT_MAP_FILES,
+    }
+
+
+def project_map_context(project_map: dict[str, Any]) -> str:
+    important = "\n".join(f"- {path}" for path in project_map["importantFiles"]) or "- none detected"
+    files = "\n".join(f"- {path}" for path in project_map["files"][:120])
+    graph = "\n".join(
+        f"- {edge['from']} -> {edge['to']} ({edge['kind']})"
+        for edge in project_map["graph"][:80]
+    ) or "- no import graph detected"
+    return (
+        "PROJECT MAP (trusted metadata generated by QTRM Chat)\n"
+        f"Root: {project_map['root']}\n"
+        f"GitHub remote: {project_map.get('githubRemote') or 'not detected'}\n"
+        f"Detected stack: {', '.join(project_map['stack']) or 'unknown'}\n"
+        f"Files: {project_map['fileCount']} files, {project_map['directoryCount']} directories, "
+        f"{project_map['totalBytes']} bytes\n"
+        f"Important files:\n{important}\n"
+        f"Project files sample:\n{files}\n"
+        f"Dependency/import graph sample:\n{graph}\n"
+    )
 
 
 def read_context_files(paths: list[str]) -> tuple[list[dict[str, Any]], int]:
@@ -124,7 +317,7 @@ def read_context_files(paths: list[str]) -> tuple[list[dict[str, Any]], int]:
     return context_files, total_chars
 
 
-def build_system_prompt(context_files: list[dict[str, Any]]) -> str:
+def build_system_prompt(context_files: list[dict[str, Any]], project_map: dict[str, Any] | None = None) -> str:
     base_prompt = (
         "You are an autonomous senior software engineering agent inside a local developer "
         "workspace. Be concise, accurate, and practical. When code context is provided, "
@@ -132,8 +325,16 @@ def build_system_prompt(context_files: list[dict[str, Any]]) -> str:
         "production-ready suggestions."
     )
 
+    map_section = ""
+    if project_map:
+        map_section = (
+            "\n\n--- BEGIN TRUSTED PROJECT MAP ---\n"
+            + project_map_context(project_map)
+            + "--- END TRUSTED PROJECT MAP ---"
+        )
+
     if not context_files:
-        return base_prompt
+        return base_prompt + map_section
 
     context_sections = []
     for item in context_files:
@@ -142,7 +343,11 @@ def build_system_prompt(context_files: list[dict[str, Any]]) -> str:
             f"FILE: {item['path']}{marker}\n```text\n{item['content']}\n```"
         )
 
-    return f"{base_prompt}\n\nWorkspace context:\n\n" + "\n\n".join(context_sections)
+    return (
+        f"{base_prompt}{map_section}\n\n"
+        "Workspace context:\n\n"
+        + "\n\n".join(context_sections)
+    )
 
 
 def estimate_tokens(char_count: int) -> int:
@@ -334,6 +539,11 @@ async def get_workspace_file(path: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/workspace/map")
+async def get_workspace_map() -> dict[str, Any]:
+    return build_project_map()
+
+
 @app.post("/api/context/files")
 async def parse_context_files(payload: dict[str, list[str]]) -> dict[str, Any]:
     attachments = payload.get("attachments", [])
@@ -362,7 +572,8 @@ async def stream_chat(payload: ChatRequest) -> StreamingResponse:
     update_chat(chat)
 
     context_files, total_context_chars = read_context_files(payload.attachments)
-    system_prompt = build_system_prompt(context_files)
+    project_map = build_project_map()
+    system_prompt = build_system_prompt(context_files, project_map)
     model_messages = [{"role": "system", "content": system_prompt}]
     model_messages.extend(
         {"role": message["role"], "content": message["content"]}
@@ -374,6 +585,12 @@ async def stream_chat(payload: ChatRequest) -> StreamingResponse:
         try:
             initial_payload = {
                 "activeFiles": [item["path"] for item in context_files],
+                "projectMap": {
+                    "fileCount": project_map["fileCount"],
+                    "directoryCount": project_map["directoryCount"],
+                    "stack": project_map["stack"],
+                    "githubRemote": project_map["githubRemote"],
+                },
                 "estimatedPromptTokens": estimate_tokens(
                     total_context_chars
                     + sum(len(message["content"]) for message in chat["messages"])

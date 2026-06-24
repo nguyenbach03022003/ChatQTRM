@@ -58,10 +58,10 @@ export function ContextPanel({
           />
           <StatTile
             icon={<Gauge size={15} />}
-            label="Context Window"
+            label="Context Window Used"
             value={
               contextWindow > 0
-                ? `${contextWindow.toLocaleString()} tokens`
+                ? `${estimatedPromptTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`
                 : "Unknown"
             }
             hint={`${contextUsage.toFixed(1)}% of configured window`}

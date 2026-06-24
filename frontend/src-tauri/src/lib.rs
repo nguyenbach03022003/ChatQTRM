@@ -44,6 +44,7 @@ pub fn run() {
             settings::set_secret,
             settings::has_secret,
             settings::delete_secret,
+            settings::test_mcp_server,
             // projects
             projects::list_projects,
             projects::get_active_project,
@@ -58,6 +59,7 @@ pub fn run() {
             fs_tools::create_folder,
             fs_tools::edit_file,
             fs_tools::delete_path,
+            fs_tools::project_map,
             // search
             search::search_files,
             search::search_text,
