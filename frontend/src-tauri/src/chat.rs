@@ -181,11 +181,26 @@ fn build_system_prompt(
          before editing. Only write or edit files when the user clearly asks for a change. When code \
          context is provided, ground your answer in those files and respect the existing style. \
          If the task involves KiCad, schematics, PCB projects, or another external tool exposed \
-         through MCP, first use mcp_list_tools and then mcp_call_tool. Do not create placeholder \
-         KiCad files with write_file when an MCP server can perform the real operation. When an \
-         MCP call returns project paths, use those returned paths in later calls. If an MCP call \
-         fails, inspect the error and retry with corrected arguments; never repeat the exact same \
-         failing MCP call.",
+         through MCP, follow this workflow:\n\
+         1. Call mcp_list_tools first, and READ each tool's input schema before calling it. Match \
+         your argument names and types to that schema; do not guess field names.\n\
+         2. In KiCad MCP, a `path` argument almost always means a DIRECTORY (the project folder). \
+         The values returned under project.path, project.schematicPath, and project.boardPath are \
+         FILE paths. Use a returned file path only in a field that expects that exact file; never \
+         pass a .kicad_pro or .kicad_sch FILE where a directory is expected.\n\
+         3. create_project ALREADY creates the schematic, board, and project files. After it \
+         succeeds, do NOT call create_schematic. Open or edit the schematic using the returned \
+         project.schematicPath directly.\n\
+         4. If you genuinely need create_schematic, pass the project DIRECTORY (the folder that \
+         contains the .kicad_pro file) -- never a .kicad_pro file and never a .kicad_sch file. \
+         Never build a path by appending a file name onto a returned .kicad_pro/.kicad_sch path; \
+         that produces an invalid nested path like \"proj.kicad_pro/proj.kicad_sch\".\n\
+         5. If a symbol search (e.g. STM32F1 or DHT11) returns no results, do NOT repeat the same \
+         search. Use search_tools / list symbol libraries or categories to find the correct \
+         library, or place a generic connector/module symbol instead of looping.\n\
+         Do not create placeholder KiCad files with write_file when an MCP server can perform the \
+         real operation. If an MCP call fails, read the error, FIX the arguments, and never repeat \
+         the same or an equivalent failing MCP call.",
     );
     prompt.push_str(&crate::skills::enabled_skill_prompt(app));
 
@@ -721,6 +736,137 @@ fn execute_mcp_agent_tool(
     }
 }
 
+const KICAD_FILE_EXTENSIONS: [&str; 3] = [".kicad_pro", ".kicad_sch", ".kicad_pcb"];
+
+/// Recursively find the first string whose key contains `key_needle`
+/// (case-insensitive). Used to pull project.schematicPath out of a create_project
+/// result regardless of how the MCP server nests it.
+fn find_nested_str<'a>(value: &'a Value, key_needle: &str) -> Option<&'a str> {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                if key.to_ascii_lowercase().contains(key_needle) {
+                    if let Some(text) = child.as_str() {
+                        return Some(text);
+                    }
+                }
+                if let Some(found) = find_nested_str(child, key_needle) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(items) => items.iter().find_map(|item| find_nested_str(item, key_needle)),
+        _ => None,
+    }
+}
+
+/// Structural guard for KiCad MCP calls. Returns a corrective message (to feed
+/// back to the model as a tool error) when the arguments are obviously wrong,
+/// instead of forwarding a broken call to the server. Catches the two failure
+/// modes seen in the wild:
+///   * a path that nests something INSIDE a .kicad_* file (invalid nesting), and
+///   * create_schematic called after create_project already made the schematic,
+///     or called with a file path where a directory is expected.
+fn guard_kicad_mcp_call(
+    tool: &str,
+    arguments: &Value,
+    created_project: Option<&Value>,
+) -> Option<String> {
+    let tool_lc = tool.to_ascii_lowercase();
+
+    // Collect string argument values that look like paths.
+    let path_args: Vec<(String, String)> = arguments
+        .as_object()
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(key, value)| value.as_str().map(|s| (key.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // 1. Nested KiCad path: a .kicad_* extension that is not the leaf of the path
+    //    means something was appended after a FILE -- always invalid.
+    for (key, value) in &path_args {
+        let norm = value.replace('\\', "/");
+        for ext in KICAD_FILE_EXTENSIONS {
+            if norm.contains(&format!("{ext}/")) {
+                return Some(format!(
+                    "Refusing to call '{tool}': argument '{key}' = \"{value}\" nests a path INSIDE \
+                     a KiCad file. '{ext}' names a FILE, not a folder, so nothing can live beneath \
+                     it. For a directory argument use the project FOLDER (the directory that \
+                     contains the .kicad_pro file). For a file argument use the exact path returned \
+                     by create_project (project.schematicPath / project.boardPath / project.path). \
+                     Do not concatenate returned file paths together."
+                ));
+            }
+        }
+    }
+
+    // 2. create_schematic-style calls.
+    let is_create_schematic = tool_lc.contains("schematic") && tool_lc.contains("creat");
+    if is_create_schematic {
+        if let Some(project) = created_project {
+            let schematic = find_nested_str(project, "schematicpath")
+                .unwrap_or("the schematicPath returned by create_project");
+            return Some(format!(
+                "Refusing to call '{tool}': create_project already created the schematic at \
+                 \"{schematic}\". Do not create a second schematic. Open or edit that schematic \
+                 using the returned schematicPath directly."
+            ));
+        }
+        for (key, value) in &path_args {
+            let norm = value.replace('\\', "/");
+            if KICAD_FILE_EXTENSIONS.iter().any(|ext| norm.ends_with(ext)) {
+                return Some(format!(
+                    "Refusing to call '{tool}': argument '{key}' = \"{value}\" is a FILE path. \
+                     create_schematic expects the project DIRECTORY (the folder containing the \
+                     .kicad_pro file), not a .kicad_pro or .kicad_sch file. Pass the directory path \
+                     instead."
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+/// Runs an MCP bridge tool, applying the KiCad guard before forwarding
+/// mcp_call_tool and remembering create_project output so later create_schematic
+/// calls in the same turn can be blocked.
+fn execute_mcp_with_guard(
+    settings: &Settings,
+    root: Option<&Path>,
+    name: &str,
+    args: &Value,
+    created_project: &mut Option<Value>,
+) -> String {
+    if name == "mcp_call_tool" {
+        let tool = args.get("tool").and_then(|v| v.as_str()).unwrap_or_default();
+        let arguments = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        if let Some(message) = guard_kicad_mcp_call(tool, &arguments, created_project.as_ref()) {
+            return json!({ "error": message, "guard": "kicad-path-guard" }).to_string();
+        }
+        let tool_lc = tool.to_ascii_lowercase();
+        match execute_mcp_agent_tool(settings, root, name, args) {
+            Ok(value) => {
+                if tool_lc.contains("creat") && tool_lc.contains("project") {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(&value) {
+                        *created_project = Some(parsed);
+                    }
+                }
+                value
+            }
+            Err(error) => json!({ "error": error }).to_string(),
+        }
+    } else {
+        match execute_mcp_agent_tool(settings, root, name, args) {
+            Ok(value) => value,
+            Err(error) => json!({ "error": error }).to_string(),
+        }
+    }
+}
+
 fn parse_tool_arguments(raw: &Value) -> Value {
     if raw.is_object() {
         raw.clone()
@@ -847,6 +993,9 @@ async fn run_agent_tool_rounds(
     }
     let mut visible_log = String::new();
     let mut executed_calls = HashSet::new();
+    // Remembers create_project output within this turn so a follow-up
+    // create_schematic can be blocked (create_project already made the schematic).
+    let mut created_project: Option<Value> = None;
 
     for _ in 0..MAX_AGENT_TOOL_ROUNDS {
         let body = json!({
@@ -892,7 +1041,14 @@ async fn run_agent_tool_rounds(
             visible_log.push_str(&tool_header);
             let _ = app.emit("chat://token", json!({"chatId": chat_id, "content": tool_header}));
 
-            let call_key = format!("{name}:{display_args}");
+            // Normalize so equivalent calls (path separator/case/trailing-slash and
+            // Windows long-path-prefix variants of the same wrong path) collapse to
+            // one signature and are not retried.
+            let call_key = format!("{name}:{display_args}")
+                .to_ascii_lowercase()
+                .replace('\\', "/")
+                .replace("//?/", "/")
+                .replace("//", "/");
             let result = if !executed_calls.insert(call_key) {
                 json!({
                     "skipped": true,
@@ -903,10 +1059,7 @@ async fn run_agent_tool_rounds(
                 executed_any_new_call = true;
                 match name {
                     "mcp_list_tools" | "mcp_call_tool" => {
-                        match execute_mcp_agent_tool(settings, root, name, &args) {
-                            Ok(value) => value,
-                            Err(error) => json!({ "error": error }).to_string(),
-                        }
+                        execute_mcp_with_guard(settings, root, name, &args, &mut created_project)
                     }
                     _ => match root {
                         Some(root) => match execute_agent_tool(root, name, &args) {
