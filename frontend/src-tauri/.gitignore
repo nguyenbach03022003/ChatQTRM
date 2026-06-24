@@ -1,0 +1,8 @@
+# Rust build artifacts
+/target/
+# Tauri-generated schemas/permissions
+/gen/
+# Generated app icons (regenerate with `npm run tauri icon`)
+/icons/
+# Placeholder source icon
+/../app-icon.png

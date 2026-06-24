@@ -2,6 +2,11 @@
 
 ChatQTRM is a Codex Desktop-inspired local AI engineering assistant with a React frontend, FastAPI backend, and Ollama-powered local model runtime.
 
+> **Windows desktop app:** a native Tauri v2 build (project-scoped file tools,
+> integrated PTY terminal, git, skills, secure key storage, streaming local
+> models) lives alongside the web app and reuses the same React UI.
+> See **[DESKTOP.md](./DESKTOP.md)** for architecture and build/packaging steps.
+
 ## Quick Start
 
 1. Copy `.env.example` to `.env` and set `OLLAMA_MODEL` to your installed model tag if needed.

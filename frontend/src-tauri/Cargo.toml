@@ -1,0 +1,56 @@
+[package]
+name = "chatqtrm-desktop"
+version = "1.0.0"
+description = "QTRM Chat — local AI engineering assistant for Windows"
+authors = ["QTRM"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library is what Tauri's mobile/desktop entrypoints link against.
+[lib]
+name = "chatqtrm_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+
+# Filesystem walking + search (respects .gitignore via the `ignore` crate)
+ignore = "0.4"
+walkdir = "2"
+regex = "1"
+
+# Real PTY-backed integrated terminal
+portable-pty = "0.8"
+
+# OS-native secret storage (Windows Credential Manager on Windows)
+keyring = "2"
+
+anyhow = "1"
+thiserror = "1"
+
+[features]
+# This feature is used for production builds or when a dev server is not specified,
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
